@@ -1,4 +1,4 @@
-import { ChildProcess, IOType } from "node:child_process";
+import { ChildProcess, IOType, StdioOptions } from "node:child_process";
 import spawn from "cross-spawn";
 import process from "node:process";
 import { Stream, PassThrough } from "node:stream";
@@ -100,6 +100,10 @@ export class StdioClientTransport implements Transport {
   onmessage?: (message: JSONRPCMessage) => void;
 
   constructor(server: StdioServerParameters) {
+    console.log(
+      "[StdioClientTransport constructor]: Initializing with server params:",
+      server,
+    );
     this._serverParams = server;
     if (server.stderr === "pipe" || server.stderr === "overlapped") {
       this._stderrStream = new PassThrough();
@@ -112,7 +116,7 @@ export class StdioClientTransport implements Transport {
   async start(): Promise<void> {
     if (this._process) {
       throw new Error(
-        "StdioClientTransport already started! If using Client class, note that connect() calls start() automatically."
+        "StdioClientTransport already started! If using Client class, note that connect() calls start() automatically.",
       );
     }
 
@@ -122,17 +126,46 @@ export class StdioClientTransport implements Transport {
         this._serverParams.args ?? [],
         {
           env: this._serverParams.env ?? getDefaultEnvironment(),
-          stdio: ["pipe", "pipe", this._serverParams.stderr ?? "inherit"],
+          stdio: ["pipe", "pipe", "pipe"] as StdioOptions,
           shell: false,
           signal: this._abortController.signal,
           windowsHide: process.platform === "win32" && isElectron(),
           cwd: this._serverParams.cwd,
-        }
+        },
       );
 
+      if (this._process.stdout) {
+        this._process.stdout.on("data", (data) => {
+          console.log(
+            `[MCP Child STDOUT RAW]: Received ${data.length} bytes. Hex: ${data.toString("hex")}`,
+          );
+          const message = data.toString();
+          console.log(`[MCP Child STDOUT]: ${message.trim()}`);
+          this._readBuffer.append(data);
+          this.processReadBuffer();
+        });
+        this._process.stdout.on("error", (error) => {
+          console.error("[MCP Child STDOUT ERROR]:", error);
+          this.onerror?.(error);
+        });
+      } else {
+        console.warn("[MCP Child STDOUT]: Stream not available.");
+      }
+
+      if (this._process.stderr) {
+        this._process.stderr.on("data", (data) => {
+          console.error(`[MCP Child STDERR]: ${data.toString().trim()}`);
+        });
+        this._process.stderr.on("error", (error) => {
+          console.error("[MCP Child STDERR ERROR]:", error);
+        });
+      } else {
+        console.warn("[MCP Child STDERR]: Stream not available.");
+      }
+
       this._process.on("error", (error) => {
+        console.error('[MCP Child Process "error" event]:', error);
         if (error.name === "AbortError") {
-          // Expected when close() is called.
           this.onclose?.();
           return;
         }
@@ -142,24 +175,21 @@ export class StdioClientTransport implements Transport {
       });
 
       this._process.on("spawn", () => {
+        console.log(
+          '[MCP Child Process "spawn" event]: Process spawned successfully.',
+        );
         resolve();
       });
 
-      this._process.on("close", (_code) => {
+      this._process.on("close", (code, signal) => {
+        console.log(
+          `[MCP Child Process "close" event]: Process closed with code ${code}, signal ${signal}`,
+        );
         this._process = undefined;
         this.onclose?.();
       });
 
       this._process.stdin?.on("error", (error) => {
-        this.onerror?.(error);
-      });
-
-      this._process.stdout?.on("data", (chunk) => {
-        this._readBuffer.append(chunk);
-        this.processReadBuffer();
-      });
-
-      this._process.stdout?.on("error", (error) => {
         this.onerror?.(error);
       });
 
@@ -191,15 +221,25 @@ export class StdioClientTransport implements Transport {
         if (message === null) {
           break;
         }
-
+        console.log(
+          "[StdioClientTransport processReadBuffer]: Successfully parsed message:",
+          JSON.stringify(message),
+        );
         this.onmessage?.(message);
       } catch (error) {
+        console.error(
+          "[StdioClientTransport processReadBuffer]: Error parsing message:",
+          error,
+        );
         this.onerror?.(error as Error);
       }
     }
   }
 
   async close(): Promise<void> {
+    console.log(
+      "[StdioClientTransport close]: Close method called. Aborting controller and clearing process/buffer.",
+    );
     this._abortController.abort();
     this._process = undefined;
     this._readBuffer.clear();
@@ -208,9 +248,16 @@ export class StdioClientTransport implements Transport {
   send(message: JSONRPCMessage): Promise<void> {
     return new Promise((resolve) => {
       if (!this._process?.stdin) {
+        console.error(
+          "[StdioClientTransport send]: Attempted to send message but not connected (no process or stdin).",
+        );
         throw new Error("Not connected");
       }
 
+      console.log(
+        "[StdioClientTransport send]: Sending message:",
+        JSON.stringify(message),
+      );
       const json = serializeMessage(message);
       if (this._process.stdin.write(json)) {
         resolve();

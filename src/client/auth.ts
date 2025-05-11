@@ -1,11 +1,21 @@
-import pkceChallenge from "pkce-challenge";
+import pkceChallenge from "../../../node_modules/pkce-challenge/dist/index.node.js";
 import { LATEST_PROTOCOL_VERSION } from "../types.js";
-import type { OAuthClientMetadata, OAuthClientInformation, OAuthTokens, OAuthMetadata, OAuthClientInformationFull } from "../shared/auth.js";
-import { OAuthClientInformationFullSchema, OAuthMetadataSchema, OAuthTokensSchema } from "../shared/auth.js";
+import type {
+  OAuthClientMetadata,
+  OAuthClientInformation,
+  OAuthTokens,
+  OAuthMetadata,
+  OAuthClientInformationFull,
+} from "../shared/auth.js";
+import {
+  OAuthClientInformationFullSchema,
+  OAuthMetadataSchema,
+  OAuthTokensSchema,
+} from "../shared/auth.js";
 
 /**
  * Implements an end-to-end OAuth client to be used with one MCP server.
- * 
+ *
  * This client relies upon a concept of an authorized "session," the exact
  * meaning of which is application-defined. Tokens, authorization codes, and
  * code verifiers should not cross different sessions.
@@ -26,17 +36,22 @@ export interface OAuthClientProvider {
    * server, or returns `undefined` if the client is not registered with the
    * server.
    */
-  clientInformation(): OAuthClientInformation | undefined | Promise<OAuthClientInformation | undefined>;
+  clientInformation():
+    | OAuthClientInformation
+    | undefined
+    | Promise<OAuthClientInformation | undefined>;
 
   /**
    * If implemented, this permits the OAuth client to dynamically register with
    * the server. Client information saved this way should later be read via
    * `clientInformation()`.
-   * 
+   *
    * This method is not required to be implemented if client information is
    * statically known (e.g., pre-registered).
    */
-  saveClientInformation?(clientInformation: OAuthClientInformationFull): void | Promise<void>;
+  saveClientInformation?(
+    clientInformation: OAuthClientInformationFull,
+  ): void | Promise<void>;
 
   /**
    * Loads any existing OAuth tokens for the current session, or returns
@@ -78,24 +93,32 @@ export class UnauthorizedError extends Error {
 
 /**
  * Orchestrates the full auth flow with a server.
- * 
+ *
  * This can be used as a single entry point for all authorization functionality,
  * instead of linking together the other lower-level functions in this module.
  */
 export async function auth(
   provider: OAuthClientProvider,
-  { serverUrl, authorizationCode }: { serverUrl: string | URL, authorizationCode?: string }): Promise<AuthResult> {
+  {
+    serverUrl,
+    authorizationCode,
+  }: { serverUrl: string | URL; authorizationCode?: string },
+): Promise<AuthResult> {
   const metadata = await discoverOAuthMetadata(serverUrl);
 
   // Handle client registration if needed
   let clientInformation = await Promise.resolve(provider.clientInformation());
   if (!clientInformation) {
     if (authorizationCode !== undefined) {
-      throw new Error("Existing OAuth client information is required when exchanging an authorization code");
+      throw new Error(
+        "Existing OAuth client information is required when exchanging an authorization code",
+      );
     }
 
     if (!provider.saveClientInformation) {
-      throw new Error("OAuth client information must be saveable for dynamic registration");
+      throw new Error(
+        "OAuth client information must be saveable for dynamic registration",
+      );
     }
 
     const fullInformation = await registerClient(serverUrl, {
@@ -142,11 +165,14 @@ export async function auth(
   }
 
   // Start new authorization flow
-  const { authorizationUrl, codeVerifier } = await startAuthorization(serverUrl, {
-    metadata,
-    clientInformation,
-    redirectUrl: provider.redirectUrl
-  });
+  const { authorizationUrl, codeVerifier } = await startAuthorization(
+    serverUrl,
+    {
+      metadata,
+      clientInformation,
+      redirectUrl: provider.redirectUrl,
+    },
+  );
 
   await provider.saveCodeVerifier(codeVerifier);
   await provider.redirectToAuthorization(authorizationUrl);
@@ -168,8 +194,9 @@ export async function discoverOAuthMetadata(
   try {
     response = await fetch(url, {
       headers: {
-        "MCP-Protocol-Version": opts?.protocolVersion ?? LATEST_PROTOCOL_VERSION
-      }
+        "MCP-Protocol-Version":
+          opts?.protocolVersion ?? LATEST_PROTOCOL_VERSION,
+      },
     });
   } catch (error) {
     // CORS errors come back as TypeError
@@ -391,7 +418,9 @@ export async function registerClient(
 
   if (metadata) {
     if (!metadata.registration_endpoint) {
-      throw new Error("Incompatible auth server: does not support dynamic client registration");
+      throw new Error(
+        "Incompatible auth server: does not support dynamic client registration",
+      );
     }
 
     registrationUrl = new URL(metadata.registration_endpoint);
@@ -408,7 +437,9 @@ export async function registerClient(
   });
 
   if (!response.ok) {
-    throw new Error(`Dynamic client registration failed: HTTP ${response.status}`);
+    throw new Error(
+      `Dynamic client registration failed: HTTP ${response.status}`,
+    );
   }
 
   return OAuthClientInformationFullSchema.parse(await response.json());

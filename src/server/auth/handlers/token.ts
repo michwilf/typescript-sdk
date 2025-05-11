@@ -2,7 +2,7 @@ import { z } from "zod";
 import express, { RequestHandler } from "express";
 import { OAuthServerProvider } from "../provider.js";
 import cors from "cors";
-import { verifyChallenge } from "pkce-challenge";
+import { verifyChallenge } from "../../../../../node_modules/pkce-challenge/dist/index.node.js";
 import { authenticateClient } from "../middleware/clientAuth.js";
 import { rateLimit, Options as RateLimitOptions } from "express-rate-limit";
 import { allowedMethods } from "../middleware/allowedMethods.js";
@@ -12,7 +12,7 @@ import {
   UnsupportedGrantTypeError,
   ServerError,
   TooManyRequestsError,
-  OAuthError
+  OAuthError,
 } from "../errors.js";
 
 export type TokenHandlerOptions = {
@@ -38,7 +38,10 @@ const RefreshTokenGrantSchema = z.object({
   scope: z.string().optional(),
 });
 
-export function tokenHandler({ provider, rateLimit: rateLimitConfig }: TokenHandlerOptions): RequestHandler {
+export function tokenHandler({
+  provider,
+  rateLimit: rateLimitConfig,
+}: TokenHandlerOptions): RequestHandler {
   // Nested router so we can configure middleware and restrict HTTP method
   const router = express.Router();
 
@@ -50,21 +53,25 @@ export function tokenHandler({ provider, rateLimit: rateLimitConfig }: TokenHand
 
   // Apply rate limiting unless explicitly disabled
   if (rateLimitConfig !== false) {
-    router.use(rateLimit({
-      windowMs: 15 * 60 * 1000, // 15 minutes
-      max: 50, // 50 requests per windowMs 
-      standardHeaders: true,
-      legacyHeaders: false,
-      message: new TooManyRequestsError('You have exceeded the rate limit for token requests').toResponseObject(),
-      ...rateLimitConfig
-    }));
+    router.use(
+      rateLimit({
+        windowMs: 15 * 60 * 1000, // 15 minutes
+        max: 50, // 50 requests per windowMs
+        standardHeaders: true,
+        legacyHeaders: false,
+        message: new TooManyRequestsError(
+          "You have exceeded the rate limit for token requests",
+        ).toResponseObject(),
+        ...rateLimitConfig,
+      }),
+    );
   }
 
   // Authenticate and extract client details
   router.use(authenticateClient({ clientsStore: provider.clientsStore }));
 
   router.post("/", async (req, res) => {
-    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader("Cache-Control", "no-store");
 
     try {
       const parseResult = TokenRequestSchema.safeParse(req.body);
@@ -92,17 +99,26 @@ export function tokenHandler({ provider, rateLimit: rateLimitConfig }: TokenHand
 
           const skipLocalPkceValidation = provider.skipLocalPkceValidation;
 
-          // Perform local PKCE validation unless explicitly skipped 
+          // Perform local PKCE validation unless explicitly skipped
           // (e.g. to validate code_verifier in upstream server)
           if (!skipLocalPkceValidation) {
-            const codeChallenge = await provider.challengeForAuthorizationCode(client, code);
+            const codeChallenge = await provider.challengeForAuthorizationCode(
+              client,
+              code,
+            );
             if (!(await verifyChallenge(code_verifier, codeChallenge))) {
-              throw new InvalidGrantError("code_verifier does not match the challenge");
+              throw new InvalidGrantError(
+                "code_verifier does not match the challenge",
+              );
             }
           }
 
           // Passes the code_verifier to the provider if PKCE validation didn't occur locally
-          const tokens = await provider.exchangeAuthorizationCode(client, code, skipLocalPkceValidation ? code_verifier : undefined);
+          const tokens = await provider.exchangeAuthorizationCode(
+            client,
+            code,
+            skipLocalPkceValidation ? code_verifier : undefined,
+          );
           res.status(200).json(tokens);
           break;
         }
@@ -116,7 +132,11 @@ export function tokenHandler({ provider, rateLimit: rateLimitConfig }: TokenHand
           const { refresh_token, scope } = parseResult.data;
 
           const scopes = scope?.split(" ");
-          const tokens = await provider.exchangeRefreshToken(client, refresh_token, scopes);
+          const tokens = await provider.exchangeRefreshToken(
+            client,
+            refresh_token,
+            scopes,
+          );
           res.status(200).json(tokens);
           break;
         }
@@ -126,7 +146,7 @@ export function tokenHandler({ provider, rateLimit: rateLimitConfig }: TokenHand
 
         default:
           throw new UnsupportedGrantTypeError(
-            "The grant type is not supported by this authorization server."
+            "The grant type is not supported by this authorization server.",
           );
       }
     } catch (error) {
