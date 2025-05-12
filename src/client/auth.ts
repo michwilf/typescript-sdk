@@ -277,6 +277,10 @@ export async function startAuthorization(
   );
   authorizationUrl.searchParams.set("redirect_uri", String(redirectUrl));
 
+  if (scope) {
+    authorizationUrl.searchParams.set("scope", scope);
+  }
+
   return { authorizationUrl, codeVerifier };
 }
 
