@@ -171,6 +171,7 @@ export async function auth(
       metadata,
       clientInformation,
       redirectUrl: provider.redirectUrl,
+      scope: provider.clientMetadata.scope,
     },
   );
 
