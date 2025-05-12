@@ -230,10 +230,12 @@ export async function startAuthorization(
     metadata,
     clientInformation,
     redirectUrl,
+    scope,
   }: {
     metadata?: OAuthMetadata;
     clientInformation: OAuthClientInformation;
     redirectUrl: string | URL;
+    scope?: string;
   },
 ): Promise<{ authorizationUrl: URL; codeVerifier: string }> {
   const responseType = "code";
